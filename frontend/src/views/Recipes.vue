@@ -890,11 +890,8 @@ async function submitForm(status: VersionStatus | null) {
   }
   try {
     if (formMode.value === 'create_recipe') {
-      const recipe = await recipeApi.create({ name: form.value.recipeName });
-      await recipeApi.createVersion({
-        recipeId: recipe.id,
-        version: 'v1.0',
-        status: status || 'draft',
+      await recipeApi.create({
+        name: form.value.recipeName,
         waxBase: form.value.waxBase,
         burnTimeEstimate: form.value.burnTimeEstimate,
         description: form.value.description,
@@ -903,6 +900,7 @@ async function submitForm(status: VersionStatus | null) {
         essentialOils: form.value.essentialOils,
         scenarios: form.value.scenarios,
         seasons: form.value.seasons,
+        status: status || 'draft',
       });
     } else if (formMode.value === 'create_version') {
       if (!editingRecipeForVersion.value) return;

@@ -170,7 +170,7 @@ export class DataStore implements OnModuleInit {
         scenarios: ['浪漫约会', '卧室助眠', '沐浴放松'],
         seasons: ['春季', '夏季'],
         description: '百花盛开的夏日花园，花香层层叠叠，带来柔美浪漫的氛围。',
-        extraVersions: 1,
+        extraVersions: 2,
       },
       {
         name: '清晨微风',
@@ -251,11 +251,12 @@ export class DataStore implements OnModuleInit {
         for (let i = 0; i < r.extraVersions; i++) {
           const minor = i + 1;
           const baseBurnTime = r.burnTimeEstimate + (i % 2 === 0 ? -2 : 2);
+          const isLast = i === r.extraVersions - 1;
           const extraVersion: RecipeVersion = {
             id: uuidv4(),
             recipeId: recipe.id,
             version: `v1.${minor + 1}`,
-            status: i === r.extraVersions - 1 && Math.random() > 0.5 ? 'pending_review' : 'published',
+            status: isLast && r.name === '仲夏花园' ? 'pending_review' : 'published',
             waxBase: r.waxBase,
             essentialOils: r.essentialOils.map((eo) => ({
               name: eo.name,
@@ -288,10 +289,13 @@ export class DataStore implements OnModuleInit {
     const occasions = ['生日送礼', '自用日常', '节日礼物', '婚礼伴手礼', '乔迁新居'];
     const customerNames = ['张小姐', '李先生', '王女士', '陈先生', '刘小姐', '赵女士', '孙先生', '周小姐'];
 
-    for (let i = 0; i < 12; i++) {
+    let orderIdx = 0;
+    for (let i = 0; i < 16; i++) {
       const recipe = this.recipes[i % this.recipes.length];
       const versions = this.recipeVersions.filter((v) => v.recipeId === recipe.id && v.status === 'published');
-      const version = versions[versions.length - 1] || this.recipeVersions.find((v) => v.recipeId === recipe.id);
+      const version = versions.length > 0
+        ? versions[i % versions.length]
+        : this.recipeVersions.find((v) => v.recipeId === recipe.id);
       const order: Order = {
         id: uuidv4(),
         customerName: customerNames[i % customerNames.length],
@@ -310,7 +314,7 @@ export class DataStore implements OnModuleInit {
       this.orders.push(order);
     }
 
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 12; i++) {
       const order = this.orders[i];
       const recipe = this.recipes.find((r) => r.id === order.recipeId);
       const version = this.recipeVersions.find((v) => v.id === order.recipeVersionId) || this.recipeVersions.find((v) => v.recipeId === recipe!.id);
@@ -339,7 +343,55 @@ export class DataStore implements OnModuleInit {
       this.productions.push(production);
     }
 
-    for (let i = 0; i < 6; i++) {
+    const feedbackTemplate = {
+      comments: [
+        '燃烧稳定，香气扩散均匀',
+        '前调稍淡，中后调表现优秀',
+        '整体符合预期，顾客满意',
+        '燃烧时略有黑烟，需调整灯芯',
+        '留香持久，房间内数小时仍有余香',
+        '香调层次分明，非常满意',
+        '延长燃烧时间，效果不错',
+        '中调浓郁，客人反馈好',
+      ],
+      suggestions: ['建议增加前调精油比例5%', '灯芯可选择稍细型号', '浇注温度可降低2度', '可适当降低精油浓度', ''],
+    };
+
+    const recipesWithMultipleVersions = this.recipes.filter((r) => {
+      const published = this.recipeVersions.filter((v) => v.recipeId === r.id && v.status === 'published');
+      return published.length >= 2;
+    });
+
+    let feedbackIdx = 0;
+    recipesWithMultipleVersions.forEach((recipe) => {
+      const publishedVersions = this.recipeVersions.filter((v) => v.recipeId === recipe.id && v.status === 'published');
+      publishedVersions.forEach((version, vIdx) => {
+        const production = this.productions.find((p) => p.recipeVersionId === version.id) || this.productions.find((p) => p.recipeId === recipe.id);
+        if (!production) return;
+        for (let k = 0; k < 2; k++) {
+          const variance = (vIdx === 0 ? -1 : 1) * (2 + Math.random() * 5);
+          const feedback: BurnFeedback = {
+            id: uuidv4(),
+            productionId: production.id,
+            recipeId: recipe.id,
+            recipeVersionId: version.id,
+            actualBurnTime: Math.max(10, Math.round(version.burnTimeEstimate + variance)),
+            expectedBurnTime: version.burnTimeEstimate,
+            scentStrength: 3 + Math.floor(Math.random() * 3),
+            scentDuration: 3 + Math.floor(Math.random() * 3),
+            comments: feedbackTemplate.comments[feedbackIdx % feedbackTemplate.comments.length],
+            optimizationSuggestion: feedbackIdx % 3 === 0 ? feedbackTemplate.suggestions[feedbackIdx % feedbackTemplate.suggestions.length] : '',
+            optimizationGenerated: false,
+            createdAt: new Date(Date.now() - (feedbackIdx + 1) * 2 * 86400000).toISOString(),
+          };
+          this.feedbacks.push(feedback);
+          feedbackIdx++;
+        }
+      });
+    });
+
+    const remainingFeedbacks = 8 - this.feedbacks.length;
+    for (let i = 0; i < remainingFeedbacks && i < this.productions.length; i++) {
       const production = this.productions[i];
       const recipe = this.recipes.find((r) => r.id === production.recipeId);
       const version = this.recipeVersions.find((v) => v.id === production.recipeVersionId) || this.recipeVersions.find((v) => v.recipeId === recipe!.id);
@@ -353,17 +405,10 @@ export class DataStore implements OnModuleInit {
         expectedBurnTime: version!.burnTimeEstimate,
         scentStrength: 3 + Math.floor(Math.random() * 3),
         scentDuration: 3 + Math.floor(Math.random() * 3),
-        comments: [
-          '燃烧稳定，香气扩散均匀',
-          '前调稍淡，中后调表现优秀',
-          '整体符合预期，顾客满意',
-          '燃烧时略有黑烟，需调整灯芯',
-          '留香持久，房间内数小时仍有余香',
-          '香调层次分明，非常满意',
-        ][i],
-        optimizationSuggestion: i % 2 === 0 ? '' : ['建议增加前调精油比例5%', '灯芯可选择稍细型号', '浇注温度可降低2度'][i % 3],
+        comments: feedbackTemplate.comments[(feedbackIdx + i) % feedbackTemplate.comments.length],
+        optimizationSuggestion: i % 2 === 0 ? '' : feedbackTemplate.suggestions[i % feedbackTemplate.suggestions.length],
         optimizationGenerated: false,
-        createdAt: new Date(Date.now() - (i + 1) * 2 * 86400000).toISOString(),
+        createdAt: new Date(Date.now() - (feedbackIdx + i + 1) * 2 * 86400000).toISOString(),
       };
       this.feedbacks.push(feedback);
     }

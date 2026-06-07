@@ -75,7 +75,7 @@
             <div class="rec-header">
               <div style="display: flex; align-items: center; gap: 8px;">
                 <h4>{{ rec.recipe.name }}</h4>
-                <span class="version-tag">v{{ rec.version.version }}</span>
+                <span class="version-tag">{{ rec.version.version }}</span>
               </div>
               <span class="match-score">匹配度 {{ rec.score }}</span>
             </div>
@@ -110,7 +110,7 @@
           <div class="form-item">
             <label>已选配方</label>
             <div class="selected-display">
-              <span class="tag">{{ selectedRecipe.name }} (v{{ selectedVersion?.version }})</span>
+              <span class="tag">{{ selectedRecipe.name }} ({{ selectedVersion?.version }})</span>
               <button class="btn-xs-link" @click="selectedRecipe = null; selectedVersion = null;">更换</button>
             </div>
           </div>
@@ -163,7 +163,7 @@
         <div class="order-body">
           <div class="order-row">
             <span class="order-label">配方</span>
-            <span class="tag">{{ order.recipeName }}{{ order.recipeVersion ? ' (v' + order.recipeVersion.version + ')' : '' }}</span>
+            <span class="tag">{{ order.recipeName }}{{ order.recipeVersion ? ' (' + order.recipeVersion.version + ')' : '' }}</span>
           </div>
           <div class="order-row">
             <span class="order-label">心情/场合</span>

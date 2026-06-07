@@ -213,25 +213,30 @@ export class RecipeService {
     };
     this.dataStore.recipes.push(recipe);
 
-    const initialVersion: RecipeVersion = {
-      id: uuidv4(),
-      recipeId: recipe.id,
-      version: 'v1.0',
-      status: 'published',
-      waxBase: dto.waxBase,
-      essentialOils: dto.essentialOils,
-      scentLayers: dto.scentLayers,
-      burnTimeEstimate: dto.burnTimeEstimate,
-      scenarios: dto.scenarios,
-      seasons: dto.seasons,
-      description: dto.description || '',
-      changeLog: dto.changeLog || '初始版本',
-      publishedAt: new Date().toISOString(),
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    this.dataStore.recipeVersions.push(initialVersion);
-    recipe.currentVersionId = initialVersion.id;
+    if (dto.waxBase && dto.essentialOils && dto.scentLayers && dto.burnTimeEstimate && dto.scenarios && dto.seasons) {
+      const status: VersionStatus = dto.status || 'published';
+      const initialVersion: RecipeVersion = {
+        id: uuidv4(),
+        recipeId: recipe.id,
+        version: 'v1.0',
+        status,
+        waxBase: dto.waxBase,
+        essentialOils: dto.essentialOils,
+        scentLayers: dto.scentLayers,
+        burnTimeEstimate: dto.burnTimeEstimate,
+        scenarios: dto.scenarios,
+        seasons: dto.seasons,
+        description: dto.description || '',
+        changeLog: dto.changeLog || '初始版本',
+        publishedAt: status === 'published' ? new Date().toISOString() : undefined,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      this.dataStore.recipeVersions.push(initialVersion);
+      if (status === 'published') {
+        recipe.currentVersionId = initialVersion.id;
+      }
+    }
 
     return this.enrichRecipeWithDetail(recipe);
   }

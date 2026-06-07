@@ -36,31 +36,35 @@ export class CreateRecipeDto {
   name: string;
 
   @IsString()
-  waxBase: string;
+  @IsOptional()
+  waxBase?: string;
 
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => EssentialOilDto)
-  @ArrayMinSize(1)
-  essentialOils: EssentialOilDto[];
+  @IsOptional()
+  essentialOils?: EssentialOilDto[];
 
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => ScentLayerDto)
-  @ArrayMinSize(1)
-  scentLayers: ScentLayerDto[];
+  @IsOptional()
+  scentLayers?: ScentLayerDto[];
 
   @IsNumber()
   @Min(1)
-  burnTimeEstimate: number;
+  @IsOptional()
+  burnTimeEstimate?: number;
 
   @IsArray()
   @IsString({ each: true })
-  scenarios: string[];
+  @IsOptional()
+  scenarios?: string[];
 
   @IsArray()
   @IsString({ each: true })
-  seasons: string[];
+  @IsOptional()
+  seasons?: string[];
 
   @IsString()
   @IsOptional()
@@ -69,6 +73,10 @@ export class CreateRecipeDto {
   @IsString()
   @IsOptional()
   changeLog?: string;
+
+  @IsEnum(['draft', 'pending_review', 'published', 'archived'])
+  @IsOptional()
+  status?: VersionStatus;
 }
 
 export class CreateRecipeVersionDto {
