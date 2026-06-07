@@ -31,6 +31,14 @@ export class CreateOrderDto {
 
   @IsString()
   @IsOptional()
+  recipeVersionId?: string;
+
+  @IsString()
+  @IsOptional()
+  recipeVersion?: string;
+
+  @IsString()
+  @IsOptional()
   engraving?: string;
 
   @IsNumber()

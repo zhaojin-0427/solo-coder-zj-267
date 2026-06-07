@@ -68,23 +68,31 @@
         <div class="recommend-list">
           <div
             v-for="rec in recommendations"
-            :key="rec.recipe.id"
-            :class="['recommend-item', { selected: selectedRecipe?.id === rec.recipe.id }]"
-            @click="selectRecipe(rec.recipe)"
+            :key="rec.version.id"
+            :class="['recommend-item', { selected: selectedVersion?.id === rec.version.id }]"
+            @click="selectRecipe(rec)"
           >
             <div class="rec-header">
-              <h4>{{ rec.recipe.name }}</h4>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <h4>{{ rec.recipe.name }}</h4>
+                <span class="version-tag">v{{ rec.version.version }}</span>
+              </div>
               <span class="match-score">匹配度 {{ rec.score }}</span>
             </div>
-            <p class="rec-desc">{{ rec.recipe.description }}</p>
+            <p class="rec-desc">{{ rec.version.description }}</p>
             <div class="rec-layers">
-              <span v-for="l in rec.recipe.scentLayers" :key="l.layer" class="layer-chip">
+              <span v-for="l in rec.version.scentLayers" :key="l.layer" class="layer-chip">
                 {{ l.layer }}·{{ l.note }}
               </span>
             </div>
             <div class="rec-meta">
-              <span>🕯️ {{ rec.recipe.waxBase }}</span>
-              <span>⏱️ {{ rec.recipe.burnTimeEstimate }}h</span>
+              <span>🕯️ {{ rec.version.waxBase }}</span>
+              <span>⏱️ {{ rec.version.burnTimeEstimate }}h</span>
+              <span v-if="rec.complianceRate !== undefined">✅ 达标率 {{ rec.complianceRate }}%</span>
+              <span v-else>暂无数据</span>
+              <span class="season-tags">
+                <span v-for="s in rec.version.seasons" :key="s" class="layer-chip">{{ s }}</span>
+              </span>
             </div>
             <div v-if="rec.matchReasons.length > 0" class="match-reasons">
               <span v-for="r in rec.matchReasons" :key="r" class="match-tag">✓ {{ r }}</span>
@@ -102,8 +110,8 @@
           <div class="form-item">
             <label>已选配方</label>
             <div class="selected-display">
-              <span class="tag">{{ selectedRecipe.name }}</span>
-              <button class="btn-xs-link" @click="selectedRecipe = null">更换</button>
+              <span class="tag">{{ selectedRecipe.name }} (v{{ selectedVersion?.version }})</span>
+              <button class="btn-xs-link" @click="selectedRecipe = null; selectedVersion = null;">更换</button>
             </div>
           </div>
           <div class="form-item">
@@ -155,7 +163,7 @@
         <div class="order-body">
           <div class="order-row">
             <span class="order-label">配方</span>
-            <span class="tag">{{ order.recipeName }}</span>
+            <span class="tag">{{ order.recipeName }}{{ order.recipeVersion ? ' (v' + order.recipeVersion.version + ')' : '' }}</span>
           </div>
           <div class="order-row">
             <span class="order-label">心情/场合</span>
@@ -201,7 +209,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
 import { orderApi, Order, OrderStatus } from '@/api/order';
-import { recipeApi, Recipe, RecommendResult } from '@/api/recipe';
+import { recipeApi, Recipe, RecommendResult, RecipeVersion } from '@/api/recipe';
 
 const moods = ['放松减压', '提升活力', '浪漫温馨', '专注工作', '助眠安神'];
 const occasions = ['生日送礼', '自用日常', '节日礼物', '婚礼伴手礼', '乔迁新居'];
@@ -217,7 +225,8 @@ const statusLabels: Record<OrderStatus, string> = {
 const activeTab = ref<'new' | 'all' | 'pending' | 'producing' | 'completed'>('new');
 const orders = ref<Order[]>([]);
 const recommendations = ref<RecommendResult[]>([]);
-const selectedRecipe = ref<Recipe | null>(null);
+const selectedRecipe = ref<{ id: string; name: string } | null>(null);
+const selectedVersion = ref<RecipeVersion | null>(null);
 const currentSeason = ref(new Date().getMonth() < 3 ? '春季' : new Date().getMonth() < 6 ? '夏季' : new Date().getMonth() < 9 ? '秋季' : '冬季');
 
 const orderForm = ref({
@@ -227,6 +236,8 @@ const orderForm = ref({
   scentPreferences: [] as string[],
   recipeId: '',
   recipeName: '',
+  recipeVersionId: '',
+  recipeVersion: null as RecipeVersion | null,
   engraving: '',
   quantity: 1,
 });
@@ -260,12 +271,16 @@ const getRecommendations = async () => {
     season: currentSeason.value,
   });
   selectedRecipe.value = null;
+  selectedVersion.value = null;
 };
 
-const selectRecipe = (recipe: Recipe) => {
-  selectedRecipe.value = recipe;
-  orderForm.value.recipeId = recipe.id;
-  orderForm.value.recipeName = recipe.name;
+const selectRecipe = (rec: RecommendResult) => {
+  selectedRecipe.value = rec.recipe;
+  selectedVersion.value = rec.version;
+  orderForm.value.recipeId = rec.recipe.id;
+  orderForm.value.recipeName = rec.recipe.name;
+  orderForm.value.recipeVersionId = rec.version.id;
+  orderForm.value.recipeVersion = rec.version;
 };
 
 const submitOrder = async () => {
@@ -287,10 +302,13 @@ const submitOrder = async () => {
       scentPreferences: [],
       recipeId: '',
       recipeName: '',
+      recipeVersionId: '',
+      recipeVersion: null,
       engraving: '',
       quantity: 1,
     };
     selectedRecipe.value = null;
+    selectedVersion.value = null;
     recommendations.value = [];
     await loadOrders();
     activeTab.value = 'pending';
@@ -559,6 +577,15 @@ onMounted(loadOrders);
   font-weight: 600;
 }
 
+.version-tag {
+  background: var(--primary);
+  color: #fff;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
 .rec-desc {
   color: var(--text-light);
   font-size: 13px;
@@ -582,10 +609,18 @@ onMounted(loadOrders);
 
 .rec-meta {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 16px;
   font-size: 13px;
   color: var(--text-light);
   margin-bottom: 10px;
+}
+
+.season-tags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
 }
 
 .match-reasons {

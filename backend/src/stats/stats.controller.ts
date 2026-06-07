@@ -34,4 +34,19 @@ export class StatsController {
   getRepurchaseDistribution() {
     return this.statsService.getRepurchaseDistribution();
   }
+
+  @Get('version-compliance-trend')
+  getVersionComplianceTrend() {
+    return this.statsService.getVersionComplianceTrend();
+  }
+
+  @Get('burn-time-improvement')
+  getBurnTimeImprovement() {
+    return this.statsService.getBurnTimeImprovement();
+  }
+
+  @Get('feedback-driven-releases')
+  getFeedbackDrivenReleases() {
+    return this.statsService.getFeedbackDrivenReleases();
+  }
 }

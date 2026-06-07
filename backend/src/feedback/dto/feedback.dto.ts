@@ -13,6 +13,10 @@ export class CreateFeedbackDto {
   @IsString()
   recipeId: string;
 
+  @IsString()
+  @IsOptional()
+  recipeVersionId?: string;
+
   @IsNumber()
   @Min(0)
   actualBurnTime: number;

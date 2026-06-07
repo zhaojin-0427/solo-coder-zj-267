@@ -29,6 +29,8 @@ export class OrderService {
     const order: Order = {
       id: uuidv4(),
       ...dto,
+      recipeVersionId: dto.recipeVersionId,
+      recipeVersion: dto.recipeVersion,
       engraving: dto.engraving || '',
       status: 'pending',
       createdAt: new Date().toISOString(),

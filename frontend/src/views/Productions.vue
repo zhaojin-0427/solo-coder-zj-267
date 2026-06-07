@@ -20,7 +20,7 @@
       >
         <div class="card-header">
           <div>
-            <h3>{{ p.recipeName }}</h3>
+            <h3>{{ p.recipeName }}<span v-if="p.recipeVersion"> ({{ p.recipeVersion }})</span></h3>
             <p class="sub">关联订单 #{{ p.orderId.slice(0, 8) }}</p>
           </div>
           <span class="date-badge">{{ formatDate(p.createdAt) }}</span>
@@ -81,8 +81,23 @@
               <label>配方</label>
               <div v-if="selectedRecipe" class="selected-display">
                 <span class="tag">{{ selectedRecipe.name }}</span>
-                <span class="text-light">蜡基：{{ selectedRecipe.waxBase }}</span>
+                <span v-if="selectedRecipe.currentVersion" class="text-light">蜡基：{{ selectedRecipe.currentVersion.waxBase }}</span>
               </div>
+              <span v-else class="text-light">请先选择订单</span>
+            </div>
+
+            <div class="form-item full">
+              <label>配方版本</label>
+              <div v-if="orderHasFixedVersion" class="selected-display">
+                <span class="tag">{{ form.recipeVersion }}</span>
+                <span class="text-light">该订单已绑定版本，不可修改</span>
+              </div>
+              <select v-else-if="selectedRecipe" v-model="form.recipeVersionId" @change="onRecipeVersionChange">
+                <option value="">请选择配方版本</option>
+                <option v-for="v in currentRecipeVersions" :key="v.id" :value="v.id">
+                  {{ v.version }} - 预计燃烧{{ v.burnTimeEstimate }}h - {{ v.waxBase }}
+                </option>
+              </select>
               <span v-else class="text-light">请先选择订单</span>
             </div>
 
@@ -130,19 +145,23 @@
 import { ref, computed, onMounted, watch } from 'vue';
 import { productionApi, ProductionRecord, OilAmount } from '@/api/production';
 import { orderApi, Order } from '@/api/order';
-import { recipeApi, Recipe } from '@/api/recipe';
+import { recipeApi, Recipe, RecipeVersion } from '@/api/recipe';
 
 const productions = ref<ProductionRecord[]>([]);
 const pendingOrders = ref<Order[]>([]);
 const recipes = ref<Recipe[]>([]);
+const publishedVersions = ref<RecipeVersion[]>([]);
 const showCreateModal = ref(false);
 const selectedRecipe = ref<Recipe | null>(null);
 const selectedOrderId = ref('');
+const orderHasFixedVersion = ref(false);
 
 const defaultForm = () => ({
   orderId: '',
   recipeId: '',
   recipeName: '',
+  recipeVersionId: '',
+  recipeVersion: '',
   waxAmount: 200,
   essentialOilAmounts: [{ name: '', amount: 0 }] as OilAmount[],
   pourTemperature: 65,
@@ -152,9 +171,15 @@ const defaultForm = () => ({
 
 const form = ref(defaultForm());
 
+const currentRecipeVersions = computed(() => {
+  if (!form.value.recipeId) return [];
+  return publishedVersions.value.filter((v) => v.recipeId === form.value.recipeId);
+});
+
 const openModal = () => {
   selectedOrderId.value = '';
   selectedRecipe.value = null;
+  orderHasFixedVersion.value = false;
   form.value = defaultForm();
   showCreateModal.value = true;
 };
@@ -163,6 +188,7 @@ const closeModal = () => {
   showCreateModal.value = false;
   selectedOrderId.value = '';
   selectedRecipe.value = null;
+  orderHasFixedVersion.value = false;
   form.value = defaultForm();
 };
 
@@ -172,14 +198,18 @@ const loadData = async () => {
     (o) => o.status === 'pending' || o.status === 'producing',
   );
   recipes.value = await recipeApi.findAll();
+  publishedVersions.value = await recipeApi.findAllPublishedVersions();
 };
 
 const onOrderChange = () => {
   if (!selectedOrderId.value) {
     selectedRecipe.value = null;
+    orderHasFixedVersion.value = false;
     form.value.orderId = '';
     form.value.recipeId = '';
     form.value.recipeName = '';
+    form.value.recipeVersionId = '';
+    form.value.recipeVersion = '';
     return;
   }
   const order = pendingOrders.value.find((o) => o.id === selectedOrderId.value);
@@ -192,13 +222,52 @@ const onOrderChange = () => {
       selectedRecipe.value = recipe;
       form.value.recipeId = recipe.id;
       form.value.recipeName = recipe.name;
-      form.value.essentialOilAmounts = recipe.essentialOils.map((eo) => ({
-        name: eo.name,
-        amount: Math.round((eo.percentage / 100) * 30 * 10) / 10,
-      }));
     } else {
       selectedRecipe.value = null;
     }
+
+    if (order.recipeVersionId && order.recipeVersion) {
+      orderHasFixedVersion.value = true;
+      form.value.recipeVersionId = order.recipeVersionId;
+      form.value.recipeVersion = order.recipeVersion;
+      const version = publishedVersions.value.find((v) => v.id === order.recipeVersionId);
+      if (version) {
+        form.value.essentialOilAmounts = version.essentialOils.map((eo) => ({
+          name: eo.name,
+          amount: Math.round((eo.percentage / 100) * 30 * 10) / 10,
+        }));
+      } else if (recipe?.currentVersion) {
+        form.value.essentialOilAmounts = recipe.currentVersion.essentialOils.map((eo) => ({
+          name: eo.name,
+          amount: Math.round((eo.percentage / 100) * 30 * 10) / 10,
+        }));
+      }
+    } else {
+      orderHasFixedVersion.value = false;
+      form.value.recipeVersionId = '';
+      form.value.recipeVersion = '';
+      if (recipe?.currentVersion) {
+        form.value.essentialOilAmounts = recipe.currentVersion.essentialOils.map((eo) => ({
+          name: eo.name,
+          amount: Math.round((eo.percentage / 100) * 30 * 10) / 10,
+        }));
+      }
+    }
+  }
+};
+
+const onRecipeVersionChange = () => {
+  if (!form.value.recipeVersionId) {
+    form.value.recipeVersion = '';
+    return;
+  }
+  const version = publishedVersions.value.find((v) => v.id === form.value.recipeVersionId);
+  if (version) {
+    form.value.recipeVersion = version.version;
+    form.value.essentialOilAmounts = version.essentialOils.map((eo) => ({
+      name: eo.name,
+      amount: Math.round((eo.percentage / 100) * 30 * 10) / 10,
+    }));
   }
 };
 
@@ -220,6 +289,7 @@ const submit = async () => {
     showCreateModal.value = false;
     selectedOrderId.value = '';
     selectedRecipe.value = null;
+    orderHasFixedVersion.value = false;
     form.value = defaultForm();
     await loadData();
   } catch (e) {

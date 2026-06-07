@@ -114,6 +114,27 @@
         </div>
         <div ref="repurchaseChartRef" class="chart-container"></div>
       </div>
+
+      <div class="chart-card">
+        <div class="chart-header">
+          <h3>📈 各配方版本燃烧达标率趋势</h3>
+        </div>
+        <div ref="versionTrendChartRef" class="chart-container"></div>
+      </div>
+
+      <div class="chart-card">
+        <div class="chart-header">
+          <h3>⚡ 优化前后燃烧时长差异</h3>
+        </div>
+        <div ref="burnImproveChartRef" class="chart-container"></div>
+      </div>
+
+      <div class="chart-card">
+        <div class="chart-header">
+          <h3>🔔 反馈驱动的版本发布数量</h3>
+        </div>
+        <div ref="releaseChartRef" class="chart-container"></div>
+      </div>
     </div>
   </div>
 </template>
@@ -143,15 +164,24 @@ const stats = ref<AllStats>({
     details: [],
   },
   repurchaseDistribution: [],
+  versionComplianceTrend: [],
+  burnTimeImprovement: [],
+  feedbackDrivenReleases: [],
 });
 
 const scentChartRef = ref<HTMLElement>();
 const optimizeChartRef = ref<HTMLElement>();
 const repurchaseChartRef = ref<HTMLElement>();
+const versionTrendChartRef = ref<HTMLElement>();
+const burnImproveChartRef = ref<HTMLElement>();
+const releaseChartRef = ref<HTMLElement>();
 
 let scentChart: echarts.ECharts | null = null;
 let optimizeChart: echarts.ECharts | null = null;
 let repurchaseChart: echarts.ECharts | null = null;
+let versionTrendChart: echarts.ECharts | null = null;
+let burnImproveChart: echarts.ECharts | null = null;
+let releaseChart: echarts.ECharts | null = null;
 
 const complianceColor = computed(() => {
   const rate = stats.value.burnTimeCompliance?.complianceRate || 0;
@@ -176,6 +206,15 @@ const initCharts = () => {
   }
   if (repurchaseChartRef.value) {
     repurchaseChart = echarts.init(repurchaseChartRef.value);
+  }
+  if (versionTrendChartRef.value) {
+    versionTrendChart = echarts.init(versionTrendChartRef.value);
+  }
+  if (burnImproveChartRef.value) {
+    burnImproveChart = echarts.init(burnImproveChartRef.value);
+  }
+  if (releaseChartRef.value) {
+    releaseChart = echarts.init(releaseChartRef.value);
   }
 };
 
@@ -290,6 +329,287 @@ const updateCharts = () => {
       ],
     });
   }
+
+  const versionTrendData = (stats.value.versionComplianceTrend || []).filter(
+    (r) => r.versions && r.versions.length >= 2
+  );
+  if (versionTrendChart && versionTrendData.length > 0) {
+    const allVersions = Array.from(
+      new Set(versionTrendData.flatMap((r) => r.versions.map((v) => v.version)))
+    ).sort();
+
+    const series = versionTrendData.map((recipe, idx) => ({
+      name: recipe.recipeName,
+      type: 'line',
+      smooth: true,
+      symbol: 'circle',
+      symbolSize: 8,
+      itemStyle: { color: warmColors[idx % warmColors.length] },
+      lineStyle: { width: 2, color: warmColors[idx % warmColors.length] },
+      label: {
+        show: true,
+        formatter: '{c}%',
+        fontSize: 10,
+        color: '#3d2c1e',
+      },
+      data: allVersions.map((ver) => {
+        const found = recipe.versions.find((v) => v.version === ver);
+        return found ? found.complianceRate : null;
+      }),
+    }));
+
+    const tooltipMap: Record<string, Record<string, { rate: number; count: number }>> = {};
+    versionTrendData.forEach((recipe) => {
+      tooltipMap[recipe.recipeName] = {};
+      recipe.versions.forEach((v) => {
+        tooltipMap[recipe.recipeName][v.version] = {
+          rate: v.complianceRate,
+          count: v.feedbackCount,
+        };
+      });
+    });
+
+    versionTrendChart.setOption({
+      tooltip: {
+        trigger: 'axis',
+        formatter: (params: any) => {
+          let html = `<div style="font-weight:600;margin-bottom:6px;">${params[0].axisValue}</div>`;
+          params.forEach((p: any) => {
+            if (p.value != null) {
+              const info = tooltipMap[p.seriesName]?.[p.axisValue];
+              html += `<div style="display:flex;align-items:center;gap:6px;margin:4px 0;">
+                <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${p.color};"></span>
+                <span>${p.seriesName}</span>
+                <span style="margin-left:auto;font-weight:600;">${p.value}%</span>
+              </div>`;
+              if (info) {
+                html += `<div style="font-size:11px;color:#6b5a4a;padding-left:16px;">反馈数: ${info.count}</div>`;
+              }
+            }
+          });
+          return html;
+        },
+      },
+      legend: {
+        type: 'scroll',
+        bottom: 0,
+        textStyle: { fontSize: 11, color: '#3d2c1e' },
+      },
+      grid: { left: '3%', right: '4%', bottom: '60px', top: '10px', containLabel: true },
+      xAxis: {
+        type: 'category',
+        data: allVersions,
+        axisLabel: { fontSize: 11, color: '#3d2c1e' },
+        axisLine: { lineStyle: { color: '#e8ddd0' } },
+      },
+      yAxis: {
+        type: 'value',
+        min: 0,
+        max: 100,
+        axisLabel: { formatter: '{value}%', color: '#6b5a4a' },
+        splitLine: { lineStyle: { color: '#f5ebe0' } },
+      },
+      series,
+    });
+  }
+
+  const burnImproveData = stats.value.burnTimeImprovement || [];
+  const burnImproveCategories: string[] = [];
+  const burnImproveFromData: number[] = [];
+  const burnImproveToData: number[] = [];
+  const burnImproveMarks: any[] = [];
+
+  burnImproveData.forEach((recipe) => {
+    recipe.comparisons.forEach((comp, idx) => {
+      const catIdx = burnImproveCategories.length;
+      burnImproveCategories.push(`${recipe.recipeName} ${comp.fromVersion}→${comp.toVersion}`);
+      burnImproveFromData.push(comp.fromAvgBurn);
+      burnImproveToData.push(comp.toAvgBurn);
+      burnImproveMarks.push({
+        coord: [catIdx, Math.max(comp.fromAvgBurn, comp.toAvgBurn)],
+        value:
+          (comp.improvementHours > 0 ? '+' : '') +
+          comp.improvementHours.toFixed(1) +
+          'h',
+        itemStyle: {
+          color: comp.improvementHours >= 0 ? '#6b8e5a' : '#c25a4a',
+        },
+        label: {
+          show: true,
+          position: 'top',
+          distance: 5,
+          fontSize: 11,
+          fontWeight: 'bold',
+          color: comp.improvementHours >= 0 ? '#6b8e5a' : '#c25a4a',
+        },
+      });
+    });
+  });
+
+  if (burnImproveChart && burnImproveCategories.length > 0) {
+    burnImproveChart.setOption({
+      tooltip: {
+        trigger: 'axis',
+        axisPointer: { type: 'shadow' },
+        formatter: (params: any) => {
+          const catIdx = params[0].dataIndex;
+          let html = `<div style="font-weight:600;margin-bottom:6px;">${burnImproveCategories[catIdx]}</div>`;
+          params.forEach((p: any) => {
+            html += `<div style="display:flex;align-items:center;gap:6px;margin:4px 0;">
+              <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${p.color};"></span>
+              <span>${p.seriesName}</span>
+              <span style="margin-left:auto;font-weight:600;">${p.value}h</span>
+            </div>`;
+          });
+          return html;
+        },
+      },
+      legend: {
+        data: ['优化前', '优化后'],
+        bottom: 0,
+        textStyle: { fontSize: 11, color: '#3d2c1e' },
+      },
+      grid: { left: '3%', right: '4%', bottom: '50px', top: '30px', containLabel: true },
+      xAxis: {
+        type: 'category',
+        data: burnImproveCategories,
+        axisLabel: { rotate: 25, fontSize: 10, color: '#3d2c1e' },
+        axisLine: { lineStyle: { color: '#e8ddd0' } },
+      },
+      yAxis: {
+        type: 'value',
+        name: '小时',
+        nameTextStyle: { color: '#6b5a4a', fontSize: 11 },
+        axisLabel: { formatter: '{value}h', color: '#6b5a4a' },
+        splitLine: { lineStyle: { color: '#f5ebe0' } },
+      },
+      series: [
+        {
+          name: '优化前',
+          type: 'bar',
+          data: burnImproveFromData,
+          itemStyle: {
+            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+              { offset: 0, color: '#a67855' },
+              { offset: 1, color: '#8b5a3c' },
+            ]),
+            borderRadius: [4, 4, 0, 0],
+          },
+          barWidth: '35%',
+          barGap: '10%',
+        },
+        {
+          name: '优化后',
+          type: 'bar',
+          data: burnImproveToData,
+          itemStyle: {
+            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+              { offset: 0, color: '#d4a574' },
+              { offset: 1, color: '#c9a87c' },
+            ]),
+            borderRadius: [4, 4, 0, 0],
+          },
+          barWidth: '35%',
+          markPoint: {
+            symbol: 'pin',
+            symbolSize: 0,
+            data: burnImproveMarks,
+          },
+          label: {
+            show: true,
+            position: 'top',
+            formatter: (params: any) => {
+              const catIdx = params.dataIndex;
+              const marks = burnImproveData.flatMap((r) => r.comparisons);
+              const comp = marks[catIdx];
+              if (!comp) return '';
+              const sign = comp.improvementHours > 0 ? '+' : '';
+              return sign + comp.improvementHours.toFixed(1) + 'h';
+            },
+            color: (params: any) => {
+              const marks = burnImproveData.flatMap((r) => r.comparisons);
+              const comp = marks[params.dataIndex];
+              return comp && comp.improvementHours >= 0 ? '#6b8e5a' : '#c25a4a';
+            },
+            fontSize: 11,
+            fontWeight: 'bold',
+          },
+        },
+      ],
+    });
+  }
+
+  const releaseData = stats.value.feedbackDrivenReleases || [];
+  if (releaseChart && releaseData.length > 0) {
+    releaseChart.setOption({
+      tooltip: {
+        trigger: 'axis',
+        axisPointer: { type: 'shadow' },
+        formatter: (params: any) => {
+          const catIdx = params[0].dataIndex;
+          const row = releaseData[catIdx];
+          let html = `<div style="font-weight:600;margin-bottom:6px;">${row.month}</div>`;
+          params.forEach((p: any) => {
+            html += `<div style="display:flex;align-items:center;gap:6px;margin:4px 0;">
+              <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${p.color};"></span>
+              <span>${p.seriesName}</span>
+              <span style="margin-left:auto;font-weight:600;">${p.value}</span>
+            </div>`;
+          });
+          html += `<div style="margin-top:6px;padding-top:6px;border-top:1px solid #eee;font-weight:600;">总计: ${row.totalCount}</div>`;
+          return html;
+        },
+      },
+      legend: {
+        data: ['反馈驱动发布', '普通发布'],
+        bottom: 0,
+        textStyle: { fontSize: 11, color: '#3d2c1e' },
+      },
+      grid: { left: '3%', right: '4%', bottom: '50px', top: '10px', containLabel: true },
+      xAxis: {
+        type: 'category',
+        data: releaseData.map((r) => r.month),
+        axisLabel: { fontSize: 11, color: '#3d2c1e' },
+        axisLine: { lineStyle: { color: '#e8ddd0' } },
+      },
+      yAxis: {
+        type: 'value',
+        minInterval: 1,
+        axisLabel: { color: '#6b5a4a' },
+        splitLine: { lineStyle: { color: '#f5ebe0' } },
+      },
+      series: [
+        {
+          name: '反馈驱动发布',
+          type: 'bar',
+          stack: 'total',
+          data: releaseData.map((r) => r.feedbackDrivenCount),
+          itemStyle: {
+            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+              { offset: 0, color: '#8fbc6a' },
+              { offset: 1, color: '#6b8e5a' },
+            ]),
+            borderRadius: [4, 4, 0, 0],
+          },
+          barWidth: '50%',
+        },
+        {
+          name: '普通发布',
+          type: 'bar',
+          stack: 'total',
+          data: releaseData.map((r) => r.regularCount),
+          itemStyle: {
+            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+              { offset: 0, color: '#a67855' },
+              { offset: 1, color: '#6b4423' },
+            ]),
+            borderRadius: [4, 4, 0, 0],
+          },
+          barWidth: '50%',
+        },
+      ],
+    });
+  }
 };
 
 const loadData = async () => {
@@ -303,6 +623,9 @@ const handleResize = () => {
   scentChart?.resize();
   optimizeChart?.resize();
   repurchaseChart?.resize();
+  versionTrendChart?.resize();
+  burnImproveChart?.resize();
+  releaseChart?.resize();
 };
 
 onMounted(() => {
@@ -409,7 +732,7 @@ onMounted(() => {
 
 .charts-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 18px;
 }
 

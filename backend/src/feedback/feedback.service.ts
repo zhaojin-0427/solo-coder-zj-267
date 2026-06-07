@@ -29,8 +29,10 @@ export class FeedbackService {
     const feedback: BurnFeedback = {
       id: uuidv4(),
       ...dto,
+      recipeVersionId: dto.recipeVersionId,
       comments: dto.comments || '',
       optimizationSuggestion: dto.optimizationSuggestion || '',
+      optimizationGenerated: false,
       createdAt: new Date().toISOString(),
     };
     this.dataStore.feedbacks.push(feedback);

@@ -12,8 +12,8 @@ export class StatsService {
         scentCount[s] = (scentCount[s] || 0) + 1;
       });
     });
-    this.dataStore.recipes.forEach((recipe) => {
-      recipe.scentLayers.forEach((layer) => {
+    this.dataStore.recipeVersions.forEach((version) => {
+      version.scentLayers.forEach((layer) => {
         if (!scentCount[layer.note]) {
           scentCount[layer.note] = 0;
         }
@@ -104,6 +104,159 @@ export class StatsService {
     };
   }
 
+  getVersionComplianceTrend() {
+    const threshold = 0.85;
+    const publishedVersions = this.dataStore.recipeVersions.filter((v) => v.status === 'published');
+
+    const recipeMap = new Map<string, { recipeId: string; recipeName: string; versions: any[] }>();
+
+    this.dataStore.recipes.forEach((r) => {
+      recipeMap.set(r.id, {
+        recipeId: r.id,
+        recipeName: r.name,
+        versions: [],
+      });
+    });
+
+    publishedVersions.forEach((v) => {
+      const versionFeedbacks = this.dataStore.feedbacks.filter((f) => f.recipeVersionId === v.id);
+      const feedbackCount = versionFeedbacks.length;
+      let complianceRate = 0;
+      if (feedbackCount > 0) {
+        const compliantCount = versionFeedbacks.filter(
+          (f) => f.actualBurnTime / f.expectedBurnTime >= threshold,
+        ).length;
+        complianceRate = Math.round((compliantCount / feedbackCount) * 100);
+      }
+
+      const recipeData = recipeMap.get(v.recipeId);
+      if (recipeData) {
+        recipeData.versions.push({
+          version: v.version,
+          versionId: v.id,
+          complianceRate,
+          feedbackCount,
+          createdAt: v.createdAt,
+        });
+      }
+    });
+
+    const result = Array.from(recipeMap.values())
+      .filter((r) => r.versions.length > 0)
+      .map((r) => ({
+        ...r,
+        versions: r.versions.sort(
+          (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+        ),
+      }));
+
+    return result;
+  }
+
+  getBurnTimeImprovement() {
+    const result: any[] = [];
+    const publishedVersions = this.dataStore.recipeVersions.filter((v) => v.status === 'published');
+
+    this.dataStore.recipes.forEach((recipe) => {
+      const recipeVersions = publishedVersions
+        .filter((v) => v.recipeId === recipe.id)
+        .sort((a, b) => {
+          const parseVersion = (ver: string) => {
+            const match = ver.match(/v(\d+)\.(\d+)/);
+            if (match) {
+              return parseInt(match[1]) * 1000 + parseInt(match[2]);
+            }
+            return 0;
+          };
+          return parseVersion(a.version) - parseVersion(b.version);
+        });
+
+      const versionsWithFeedback = recipeVersions.filter((v) => {
+        const fb = this.dataStore.feedbacks.filter((f) => f.recipeVersionId === v.id);
+        return fb.length > 0;
+      });
+
+      if (versionsWithFeedback.length < 2) {
+        return;
+      }
+
+      const comparisons: any[] = [];
+      for (let i = 0; i < versionsWithFeedback.length - 1; i++) {
+        const fromVersion = versionsWithFeedback[i];
+        const toVersion = versionsWithFeedback[i + 1];
+
+        const fromFeedbacks = this.dataStore.feedbacks.filter(
+          (f) => f.recipeVersionId === fromVersion.id,
+        );
+        const toFeedbacks = this.dataStore.feedbacks.filter(
+          (f) => f.recipeVersionId === toVersion.id,
+        );
+
+        const fromAvgBurn =
+          fromFeedbacks.reduce((sum, f) => sum + f.actualBurnTime, 0) / fromFeedbacks.length;
+        const toAvgBurn =
+          toFeedbacks.reduce((sum, f) => sum + f.actualBurnTime, 0) / toFeedbacks.length;
+
+        const improvementHours = toAvgBurn - fromAvgBurn;
+        const improvementPercent =
+          fromAvgBurn > 0 ? Math.round((improvementHours / fromAvgBurn) * 100) : 0;
+
+        comparisons.push({
+          fromVersion: fromVersion.version,
+          toVersion: toVersion.version,
+          fromAvgBurn: Math.round(fromAvgBurn * 100) / 100,
+          toAvgBurn: Math.round(toAvgBurn * 100) / 100,
+          improvementHours: Math.round(improvementHours * 100) / 100,
+          improvementPercent,
+        });
+      }
+
+      if (comparisons.length > 0) {
+        result.push({
+          recipeId: recipe.id,
+          recipeName: recipe.name,
+          comparisons,
+        });
+      }
+    });
+
+    return result;
+  }
+
+  getFeedbackDrivenReleases() {
+    const publishedVersions = this.dataStore.recipeVersions.filter((v) => v.status === 'published');
+
+    const monthMap = new Map<string, { feedbackDrivenCount: number; regularCount: number }>();
+
+    publishedVersions.forEach((v) => {
+      const date = v.publishedAt || v.createdAt;
+      const d = new Date(date);
+      const month = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+
+      if (!monthMap.has(month)) {
+        monthMap.set(month, { feedbackDrivenCount: 0, regularCount: 0 });
+      }
+
+      const entry = monthMap.get(month)!;
+      if (v.sourceFeedbackId) {
+        entry.feedbackDrivenCount++;
+      } else {
+        entry.regularCount++;
+      }
+    });
+
+    const result = Array.from(monthMap.entries())
+      .map(([month, counts]) => ({
+        month,
+        feedbackDrivenCount: counts.feedbackDrivenCount,
+        regularCount: counts.regularCount,
+        totalCount: counts.feedbackDrivenCount + counts.regularCount,
+      }))
+      .sort((a, b) => a.month.localeCompare(b.month));
+
+    return result;
+  }
+
   getAllStats() {
     return {
       overview: this.getOverview(),
@@ -111,6 +264,9 @@ export class StatsService {
       recipeOptimization: this.getRecipeOptimization(),
       burnTimeCompliance: this.getBurnTimeCompliance(),
       repurchaseDistribution: this.getRepurchaseDistribution(),
+      versionComplianceTrend: this.getVersionComplianceTrend(),
+      burnTimeImprovement: this.getBurnTimeImprovement(),
+      feedbackDrivenReleases: this.getFeedbackDrivenReleases(),
     };
   }
 }

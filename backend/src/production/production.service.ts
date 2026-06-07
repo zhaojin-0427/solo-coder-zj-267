@@ -29,6 +29,8 @@ export class ProductionService {
     const record: ProductionRecord = {
       id: uuidv4(),
       ...dto,
+      recipeVersionId: dto.recipeVersionId,
+      recipeVersion: dto.recipeVersion,
       notes: dto.notes || '',
       createdAt: new Date().toISOString(),
     };

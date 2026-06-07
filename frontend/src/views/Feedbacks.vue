@@ -20,7 +20,7 @@
       >
         <div class="card-header">
           <div>
-            <h3>{{ getRecipeName(f.recipeId) }}</h3>
+            <h3>{{ getRecipeDisplay(f) }}</h3>
             <p class="sub">制作批次 #{{ f.productionId.slice(0, 8) }}</p>
           </div>
           <span :class="['compliance-badge', isCompliant(f) ? 'pass' : 'fail']">
@@ -80,6 +80,16 @@
 
         <div class="card-footer">
           <span class="date">{{ formatDate(f.createdAt) }}</span>
+          <div class="card-footer-actions">
+            <span v-if="f.optimizationGenerated" class="opt-generated-tag">✅ 已生成优化版本</span>
+            <button
+              v-else-if="f.optimizationSuggestion && !f.optimizationGenerated"
+              class="btn btn-optimize"
+              @click="openOptimizeModal(f)"
+            >
+              💡 一键生成优化版本
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -153,6 +163,30 @@
         </div>
       </div>
     </div>
+
+    <div v-if="showOptimizeModal" class="modal-overlay" @click.self="closeOptimizeModal">
+      <div class="modal">
+        <div class="modal-header">
+          <h3>生成优化版本</h3>
+          <button class="close-btn" @click="closeOptimizeModal">×</button>
+        </div>
+        <div class="modal-body">
+          <p class="optimize-desc">
+            将基于该燃烧反馈自动生成一个待审核的新配方版本。您可以在配方库中查看和审核该版本。
+          </p>
+          <div class="form-item full">
+            <label>自定义优化说明（可选）</label>
+            <textarea v-model="optimizeDescription" rows="3" placeholder="填写额外的优化说明或备注..."></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-outline" @click="closeOptimizeModal">取消</button>
+          <button class="btn btn-primary" @click="submitOptimize" :disabled="optimizing">
+            {{ optimizing ? '生成中...' : '确认生成' }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -167,10 +201,15 @@ const productions = ref<ProductionRecord[]>([]);
 const recipes = ref<Recipe[]>([]);
 const showCreateModal = ref(false);
 const selectedProductionId = ref('');
+const showOptimizeModal = ref(false);
+const optimizingFeedback = ref<BurnFeedback | null>(null);
+const optimizeDescription = ref('');
+const optimizing = ref(false);
 
 const defaultForm = () => ({
   productionId: '',
   recipeId: '',
+  recipeVersionId: '' as string | undefined,
   actualBurnTime: 0,
   expectedBurnTime: 0,
   scentStrength: 4,
@@ -207,14 +246,53 @@ const getRecipeName = (recipeId: string) => {
   return '未知配方';
 };
 
+const getRecipeDisplay = (f: BurnFeedback) => {
+  const name = getRecipeName(f.recipeId);
+  const prod = productions.value.find((p) => p.id === f.productionId);
+  if (prod?.recipeVersion) {
+    return `${name} (${prod.recipeVersion})`;
+  }
+  return name;
+};
+
 const isCompliant = (f: BurnFeedback) => {
   return f.actualBurnTime / f.expectedBurnTime >= 0.85;
+};
+
+const openOptimizeModal = (f: BurnFeedback) => {
+  optimizingFeedback.value = f;
+  optimizeDescription.value = '';
+  showOptimizeModal.value = true;
+};
+
+const closeOptimizeModal = () => {
+  showOptimizeModal.value = false;
+  optimizingFeedback.value = null;
+  optimizeDescription.value = '';
+  optimizing.value = false;
+};
+
+const submitOptimize = async () => {
+  if (!optimizingFeedback.value) return;
+  try {
+    optimizing.value = true;
+    const desc = optimizeDescription.value.trim() || undefined;
+    await recipeApi.optimizeFromFeedback(optimizingFeedback.value.id, desc);
+    alert('优化版本已生成，请前往配方库审核');
+    closeOptimizeModal();
+    await loadData();
+  } catch (e) {
+    alert('生成优化版本失败');
+  } finally {
+    optimizing.value = false;
+  }
 };
 
 const onProductionChange = () => {
   if (!selectedProductionId.value) {
     form.value.productionId = '';
     form.value.recipeId = '';
+    form.value.recipeVersionId = undefined;
     form.value.expectedBurnTime = 0;
     return;
   }
@@ -222,11 +300,21 @@ const onProductionChange = () => {
   if (prod) {
     form.value.productionId = prod.id;
     form.value.recipeId = prod.recipeId;
+    form.value.recipeVersionId = prod.recipeVersionId;
+    if (prod.recipeVersionId) {
+      const recipe = recipes.value.find((r) => r.id === prod.recipeId);
+      const version = recipe?.currentVersion?.id === prod.recipeVersionId
+        ? recipe.currentVersion
+        : null;
+      if (version?.burnTimeEstimate) {
+        form.value.expectedBurnTime = version.burnTimeEstimate;
+        return;
+      }
+    }
     const recipe = recipes.value.find((r) => r.id === prod.recipeId);
     if (recipe) {
       form.value.expectedBurnTime = recipe.burnTimeEstimate;
     } else if (prod.recipeName) {
-      // 即使没找到配方详情，也要尽量从已有的反馈中找预计燃烧时长
       const existingFeedback = feedbacks.value.find((f) => f.recipeId === prod.recipeId);
       if (existingFeedback) {
         form.value.expectedBurnTime = existingFeedback.expectedBurnTime;
@@ -519,11 +607,57 @@ watch(selectedProductionId, () => {
 
 .card-footer {
   padding: 12px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .date {
   font-size: 12px;
   color: var(--text-light);
+}
+
+.card-footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.opt-generated-tag {
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  background: #dcfce7;
+  color: #166534;
+}
+
+.btn-optimize {
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  color: #fff;
+  padding: 8px 16px;
+  font-size: 13px;
+  border-radius: var(--radius-sm);
+  box-shadow: 0 2px 6px rgba(245, 158, 11, 0.35);
+}
+
+.btn-optimize:hover {
+  background: linear-gradient(135deg, #d97706, #b45309);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(245, 158, 11, 0.4);
+}
+
+.optimize-desc {
+  font-size: 14px;
+  color: var(--text);
+  line-height: 1.6;
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  background: #fffbeb;
+  border-radius: var(--radius-sm);
+  border-left: 3px solid #f59e0b;
 }
 
 .modal-overlay {

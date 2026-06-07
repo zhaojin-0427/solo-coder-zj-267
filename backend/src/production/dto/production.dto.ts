@@ -28,6 +28,14 @@ export class CreateProductionDto {
   @IsString()
   recipeName: string;
 
+  @IsString()
+  @IsOptional()
+  recipeVersionId?: string;
+
+  @IsString()
+  @IsOptional()
+  recipeVersion?: string;
+
   @IsNumber()
   @Min(0)
   waxAmount: number;

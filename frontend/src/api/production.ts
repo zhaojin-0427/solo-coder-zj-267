@@ -10,6 +10,8 @@ export interface ProductionRecord {
   orderId: string;
   recipeId: string;
   recipeName: string;
+  recipeVersionId?: string;
+  recipeVersion?: string;
   waxAmount: number;
   essentialOilAmounts: OilAmount[];
   pourTemperature: number;

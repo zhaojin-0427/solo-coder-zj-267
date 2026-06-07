@@ -44,12 +44,47 @@ export interface RepurchaseItem {
   percentage: number;
 }
 
+export interface VersionComplianceTrend {
+  recipeId: string;
+  recipeName: string;
+  versions: {
+    version: string;
+    versionId: string;
+    complianceRate: number;
+    feedbackCount: number;
+    createdAt: string;
+  }[];
+}
+
+export interface BurnTimeImprovement {
+  recipeId: string;
+  recipeName: string;
+  comparisons: {
+    fromVersion: string;
+    toVersion: string;
+    fromAvgBurn: number;
+    toAvgBurn: number;
+    improvementHours: number;
+    improvementPercent: number;
+  }[];
+}
+
+export interface FeedbackDrivenRelease {
+  month: string;
+  feedbackDrivenCount: number;
+  regularCount: number;
+  totalCount: number;
+}
+
 export interface AllStats {
   overview: Overview;
   scentPopularity: ScentPopularity[];
   recipeOptimization: RecipeOptimization[];
   burnTimeCompliance: BurnCompliance;
   repurchaseDistribution: RepurchaseItem[];
+  versionComplianceTrend?: VersionComplianceTrend[];
+  burnTimeImprovement?: BurnTimeImprovement[];
+  feedbackDrivenReleases?: FeedbackDrivenRelease[];
 }
 
 export const statsApi = {
@@ -61,4 +96,10 @@ export const statsApi = {
   getBurnTimeCompliance: () => request.get<any, BurnCompliance>('/stats/burn-time-compliance'),
   getRepurchaseDistribution: () =>
     request.get<any, RepurchaseItem[]>('/stats/repurchase-distribution'),
+  getVersionComplianceTrend: () =>
+    request.get<any, VersionComplianceTrend[]>('/stats/version-compliance-trend'),
+  getBurnTimeImprovement: () =>
+    request.get<any, BurnTimeImprovement[]>('/stats/burn-time-improvement'),
+  getFeedbackDrivenReleases: () =>
+    request.get<any, FeedbackDrivenRelease[]>('/stats/feedback-driven-releases'),
 };

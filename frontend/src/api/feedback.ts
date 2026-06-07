@@ -4,6 +4,8 @@ export interface BurnFeedback {
   id: string;
   productionId: string;
   recipeId: string;
+  recipeVersionId?: string;
+  optimizationGenerated?: boolean;
   actualBurnTime: number;
   expectedBurnTime: number;
   scentStrength: number;

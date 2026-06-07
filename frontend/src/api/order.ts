@@ -10,6 +10,8 @@ export interface Order {
   scentPreferences: string[];
   recipeId: string;
   recipeName: string;
+  recipeVersionId?: string;
+  recipeVersion?: string;
   engraving: string;
   quantity: number;
   status: OrderStatus;

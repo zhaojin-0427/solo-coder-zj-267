@@ -1,9 +1,13 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { v4 as uuidv4 } from 'uuid';
 
-export interface Recipe {
+export type VersionStatus = 'draft' | 'pending_review' | 'published' | 'archived';
+
+export interface RecipeVersion {
   id: string;
-  name: string;
+  recipeId: string;
+  version: string;
+  status: VersionStatus;
   waxBase: string;
   essentialOils: { name: string; percentage: number }[];
   scentLayers: { layer: string; note: string; description: string }[];
@@ -11,6 +15,18 @@ export interface Recipe {
   scenarios: string[];
   seasons: string[];
   description: string;
+  changeLog: string;
+  baseVersionId?: string;
+  sourceFeedbackId?: string;
+  publishedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Recipe {
+  id: string;
+  name: string;
+  currentVersionId?: string;
   optimizationCount: number;
   createdAt: string;
   updatedAt: string;
@@ -23,7 +39,9 @@ export interface Order {
   occasion: string;
   scentPreferences: string[];
   recipeId: string;
+  recipeVersionId?: string;
   recipeName: string;
+  recipeVersion?: string;
   engraving: string;
   quantity: number;
   status: 'pending' | 'producing' | 'completed';
@@ -34,7 +52,9 @@ export interface ProductionRecord {
   id: string;
   orderId: string;
   recipeId: string;
+  recipeVersionId?: string;
   recipeName: string;
+  recipeVersion?: string;
   waxAmount: number;
   essentialOilAmounts: { name: string; amount: number }[];
   pourTemperature: number;
@@ -47,24 +67,63 @@ export interface BurnFeedback {
   id: string;
   productionId: string;
   recipeId: string;
+  recipeVersionId?: string;
   actualBurnTime: number;
   expectedBurnTime: number;
   scentStrength: number;
   scentDuration: number;
   comments: string;
   optimizationSuggestion: string;
+  optimizationGenerated: boolean;
+  createdAt: string;
+}
+
+export interface OptimizationSuggestion {
+  id: string;
+  feedbackId: string;
+  recipeId: string;
+  baseVersionId: string;
+  suggestedChanges: {
+    waxBase?: string;
+    burnTimeEstimate?: number;
+    essentialOils?: { name: string; percentage: number }[];
+    description?: string;
+  };
+  description: string;
   createdAt: string;
 }
 
 @Injectable()
 export class DataStore implements OnModuleInit {
   recipes: Recipe[] = [];
+  recipeVersions: RecipeVersion[] = [];
   orders: Order[] = [];
   productions: ProductionRecord[] = [];
   feedbacks: BurnFeedback[] = [];
+  optimizationSuggestions: OptimizationSuggestion[] = [];
 
   onModuleInit() {
     this.seedData();
+  }
+
+  private createInitialVersion(recipe: Recipe, seed: Partial<RecipeVersion>): RecipeVersion {
+    return {
+      id: uuidv4(),
+      recipeId: recipe.id,
+      version: 'v1.0',
+      status: 'published',
+      waxBase: seed.waxBase!,
+      essentialOils: seed.essentialOils!,
+      scentLayers: seed.scentLayers!,
+      burnTimeEstimate: seed.burnTimeEstimate!,
+      scenarios: seed.scenarios!,
+      seasons: seed.seasons!,
+      description: seed.description || '',
+      changeLog: '初始版本',
+      publishedAt: recipe.createdAt,
+      createdAt: recipe.createdAt,
+      updatedAt: recipe.createdAt,
+    };
   }
 
   private seedData() {
@@ -74,7 +133,7 @@ export class DataStore implements OnModuleInit {
     const seasons = ['春季', '夏季', '秋季', '冬季', '四季皆宜'];
     const layers = ['前调', '中调', '后调'];
 
-    const seedRecipes: Partial<Recipe>[] = [
+    const seedRecipes: { name: string; waxBase: string; essentialOils: { name: string; percentage: number }[]; scentLayers: { layer: string; note: string; description: string }[]; burnTimeEstimate: number; scenarios: string[]; seasons: string[]; description: string; extraVersions?: number }[] = [
       {
         name: '静谧森林',
         waxBase: '大豆蜡',
@@ -92,6 +151,7 @@ export class DataStore implements OnModuleInit {
         scenarios: ['书房阅读', '工作专注', '瑜伽冥想'],
         seasons: ['秋季', '冬季', '四季皆宜'],
         description: '宛如漫步于晨雾缭绕的森林，木质香调带来内心的宁静与力量。',
+        extraVersions: 2,
       },
       {
         name: '仲夏花园',
@@ -110,6 +170,7 @@ export class DataStore implements OnModuleInit {
         scenarios: ['浪漫约会', '卧室助眠', '沐浴放松'],
         seasons: ['春季', '夏季'],
         description: '百花盛开的夏日花园，花香层层叠叠，带来柔美浪漫的氛围。',
+        extraVersions: 1,
       },
       {
         name: '清晨微风',
@@ -146,6 +207,7 @@ export class DataStore implements OnModuleInit {
         scenarios: ['卧室助眠', '沐浴放松', '瑜伽冥想'],
         seasons: ['四季皆宜'],
         description: '普罗旺斯的薰衣草田在月光下静静绽放，带来一夜好眠。',
+        extraVersions: 1,
       },
       {
         name: '温暖壁炉',
@@ -167,22 +229,59 @@ export class DataStore implements OnModuleInit {
       },
     ];
 
+    const createdRecipes: Recipe[] = [];
+
     seedRecipes.forEach((r) => {
+      const createdAt = new Date(Date.now() - Math.random() * 30 * 86400000).toISOString();
       const recipe: Recipe = {
         id: uuidv4(),
         name: r.name,
-        waxBase: r.waxBase,
-        essentialOils: r.essentialOils,
-        scentLayers: r.scentLayers,
-        burnTimeEstimate: r.burnTimeEstimate,
-        scenarios: r.scenarios,
-        seasons: r.seasons,
-        description: r.description,
-        optimizationCount: Math.floor(Math.random() * 5),
-        createdAt: new Date(Date.now() - Math.random() * 30 * 86400000).toISOString(),
+        optimizationCount: (r.extraVersions || 0),
+        createdAt,
         updatedAt: new Date(Date.now() - Math.random() * 7 * 86400000).toISOString(),
       };
       this.recipes.push(recipe);
+      createdRecipes.push(recipe);
+
+      const v1 = this.createInitialVersion(recipe, r);
+      this.recipeVersions.push(v1);
+      recipe.currentVersionId = v1.id;
+
+      if (r.extraVersions) {
+        for (let i = 0; i < r.extraVersions; i++) {
+          const minor = i + 1;
+          const baseBurnTime = r.burnTimeEstimate + (i % 2 === 0 ? -2 : 2);
+          const extraVersion: RecipeVersion = {
+            id: uuidv4(),
+            recipeId: recipe.id,
+            version: `v1.${minor + 1}`,
+            status: i === r.extraVersions - 1 && Math.random() > 0.5 ? 'pending_review' : 'published',
+            waxBase: r.waxBase,
+            essentialOils: r.essentialOils.map((eo) => ({
+              name: eo.name,
+              percentage: eo.percentage + (Math.random() > 0.5 ? 1 : -1) * Math.floor(Math.random() * 3),
+            })),
+            scentLayers: r.scentLayers,
+            burnTimeEstimate: baseBurnTime,
+            scenarios: r.scenarios,
+            seasons: r.seasons,
+            description: r.description,
+            changeLog: [
+              '调整精油配比，优化香调层次',
+              '根据客户反馈微调燃烧时长',
+              '改进前调扩散性，提升初闻体验',
+            ][i % 3],
+            baseVersionId: this.recipeVersions[this.recipeVersions.length - 1].id,
+            publishedAt: i === r.extraVersions - 1 && Math.random() > 0.5 ? undefined : new Date(Date.now() - (i + 1) * 3 * 86400000).toISOString(),
+            createdAt: new Date(Date.now() - (i + 1) * 3 * 86400000).toISOString(),
+            updatedAt: new Date(Date.now() - (i + 1) * 3 * 86400000).toISOString(),
+          };
+          this.recipeVersions.push(extraVersion);
+          if (extraVersion.status === 'published') {
+            recipe.currentVersionId = extraVersion.id;
+          }
+        }
+      }
     });
 
     const moods = ['放松减压', '提升活力', '浪漫温馨', '专注工作', '助眠安神'];
@@ -191,14 +290,18 @@ export class DataStore implements OnModuleInit {
 
     for (let i = 0; i < 12; i++) {
       const recipe = this.recipes[i % this.recipes.length];
+      const versions = this.recipeVersions.filter((v) => v.recipeId === recipe.id && v.status === 'published');
+      const version = versions[versions.length - 1] || this.recipeVersions.find((v) => v.recipeId === recipe.id);
       const order: Order = {
         id: uuidv4(),
         customerName: customerNames[i % customerNames.length],
         mood: moods[Math.floor(Math.random() * moods.length)],
         occasion: occasions[Math.floor(Math.random() * occasions.length)],
-        scentPreferences: [recipe.scentLayers[1].note, recipe.scentLayers[0].note],
+        scentPreferences: [version!.scentLayers[1].note, version!.scentLayers[0].note],
         recipeId: recipe.id,
+        recipeVersionId: version!.id,
         recipeName: recipe.name,
+        recipeVersion: version!.version,
         engraving: i % 3 === 0 ? '' : ['愿你被温柔以待', '岁月静好', '心想事成', 'Happy Birthday'][i % 4],
         quantity: Math.floor(Math.random() * 3) + 1,
         status: (['pending', 'producing', 'completed'] as const)[i % 3],
@@ -210,13 +313,16 @@ export class DataStore implements OnModuleInit {
     for (let i = 0; i < 8; i++) {
       const order = this.orders[i];
       const recipe = this.recipes.find((r) => r.id === order.recipeId);
+      const version = this.recipeVersions.find((v) => v.id === order.recipeVersionId) || this.recipeVersions.find((v) => v.recipeId === recipe!.id);
       const production: ProductionRecord = {
         id: uuidv4(),
         orderId: order.id,
-        recipeId: recipe.id,
-        recipeName: recipe.name,
+        recipeId: recipe!.id,
+        recipeVersionId: version!.id,
+        recipeName: recipe!.name,
+        recipeVersion: version!.version,
         waxAmount: 200 + Math.floor(Math.random() * 100),
-        essentialOilAmounts: recipe.essentialOils.map((eo) => ({
+        essentialOilAmounts: version!.essentialOils.map((eo) => ({
           name: eo.name,
           amount: Math.round((eo.percentage / 100) * 30 * 10) / 10,
         })),
@@ -236,13 +342,15 @@ export class DataStore implements OnModuleInit {
     for (let i = 0; i < 6; i++) {
       const production = this.productions[i];
       const recipe = this.recipes.find((r) => r.id === production.recipeId);
+      const version = this.recipeVersions.find((v) => v.id === production.recipeVersionId) || this.recipeVersions.find((v) => v.recipeId === recipe!.id);
       const variance = (Math.random() - 0.3) * 10;
       const feedback: BurnFeedback = {
         id: uuidv4(),
         productionId: production.id,
-        recipeId: recipe.id,
-        actualBurnTime: Math.max(10, Math.round(recipe.burnTimeEstimate + variance)),
-        expectedBurnTime: recipe.burnTimeEstimate,
+        recipeId: recipe!.id,
+        recipeVersionId: version!.id,
+        actualBurnTime: Math.max(10, Math.round(version!.burnTimeEstimate + variance)),
+        expectedBurnTime: version!.burnTimeEstimate,
         scentStrength: 3 + Math.floor(Math.random() * 3),
         scentDuration: 3 + Math.floor(Math.random() * 3),
         comments: [
@@ -254,6 +362,7 @@ export class DataStore implements OnModuleInit {
           '香调层次分明，非常满意',
         ][i],
         optimizationSuggestion: i % 2 === 0 ? '' : ['建议增加前调精油比例5%', '灯芯可选择稍细型号', '浇注温度可降低2度'][i % 3],
+        optimizationGenerated: false,
         createdAt: new Date(Date.now() - (i + 1) * 2 * 86400000).toISOString(),
       };
       this.feedbacks.push(feedback);
