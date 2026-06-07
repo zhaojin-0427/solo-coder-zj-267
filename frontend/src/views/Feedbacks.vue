@@ -2,7 +2,7 @@
   <div class="feedbacks-page">
     <div class="page-header">
       <p class="page-desc">记录燃烧表现，收集反馈，持续优化配方</p>
-      <button class="btn btn-primary" @click="showCreateModal = true">
+      <button class="btn btn-primary" @click="openModal">
         <span class="btn-icon">+</span> 新增反馈
       </button>
     </div>
@@ -84,17 +84,17 @@
       </div>
     </div>
 
-    <div v-if="showCreateModal" class="modal-overlay" @click.self="showCreateModal = false">
+    <div v-if="showCreateModal" class="modal-overlay" @click.self="closeModal">
       <div class="modal">
         <div class="modal-header">
           <h3>新增燃烧反馈</h3>
-          <button class="close-btn" @click="showCreateModal = false">×</button>
+          <button class="close-btn" @click="closeModal">×</button>
         </div>
         <div class="modal-body">
           <div class="form-grid">
             <div class="form-item full">
               <label>关联制作记录</label>
-              <select v-model="form.productionId" @change="onProductionChange">
+              <select v-model="selectedProductionId" @change="onProductionChange">
                 <option value="">请选择制作记录</option>
                 <option v-for="p in productions" :key="p.id" :value="p.id">
                   {{ p.recipeName }} - {{ formatDate(p.createdAt) }} (#{{ p.id.slice(0, 8) }})
@@ -148,7 +148,7 @@
           </div>
         </div>
         <div class="modal-footer">
-          <button class="btn btn-outline" @click="showCreateModal = false">取消</button>
+          <button class="btn btn-outline" @click="closeModal">取消</button>
           <button class="btn btn-primary" @click="submit">保存</button>
         </div>
       </div>
@@ -157,7 +157,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, watch } from 'vue';
 import { feedbackApi, BurnFeedback } from '@/api/feedback';
 import { productionApi, ProductionRecord } from '@/api/production';
 import { recipeApi, Recipe } from '@/api/recipe';
@@ -166,6 +166,7 @@ const feedbacks = ref<BurnFeedback[]>([]);
 const productions = ref<ProductionRecord[]>([]);
 const recipes = ref<Recipe[]>([]);
 const showCreateModal = ref(false);
+const selectedProductionId = ref('');
 
 const defaultForm = () => ({
   productionId: '',
@@ -180,6 +181,18 @@ const defaultForm = () => ({
 
 const form = ref(defaultForm());
 
+const openModal = () => {
+  selectedProductionId.value = '';
+  form.value = defaultForm();
+  showCreateModal.value = true;
+};
+
+const closeModal = () => {
+  showCreateModal.value = false;
+  selectedProductionId.value = '';
+  form.value = defaultForm();
+};
+
 const loadData = async () => {
   feedbacks.value = await feedbackApi.findAll();
   productions.value = await productionApi.findAll();
@@ -187,7 +200,11 @@ const loadData = async () => {
 };
 
 const getRecipeName = (recipeId: string) => {
-  return recipes.value.find((r) => r.id === recipeId)?.name || '未知配方';
+  const recipe = recipes.value.find((r) => r.id === recipeId);
+  if (recipe) return recipe.name;
+  const prod = productions.value.find((p) => p.recipeId === recipeId);
+  if (prod) return prod.recipeName;
+  return '未知配方';
 };
 
 const isCompliant = (f: BurnFeedback) => {
@@ -195,29 +212,49 @@ const isCompliant = (f: BurnFeedback) => {
 };
 
 const onProductionChange = () => {
-  const prod = productions.value.find((p) => p.id === form.value.productionId);
+  if (!selectedProductionId.value) {
+    form.value.productionId = '';
+    form.value.recipeId = '';
+    form.value.expectedBurnTime = 0;
+    return;
+  }
+  const prod = productions.value.find((p) => p.id === selectedProductionId.value);
   if (prod) {
+    form.value.productionId = prod.id;
     form.value.recipeId = prod.recipeId;
     const recipe = recipes.value.find((r) => r.id === prod.recipeId);
     if (recipe) {
       form.value.expectedBurnTime = recipe.burnTimeEstimate;
+    } else if (prod.recipeName) {
+      // 即使没找到配方详情，也要尽量从已有的反馈中找预计燃烧时长
+      const existingFeedback = feedbacks.value.find((f) => f.recipeId === prod.recipeId);
+      if (existingFeedback) {
+        form.value.expectedBurnTime = existingFeedback.expectedBurnTime;
+      }
     }
   }
 };
 
 const submit = async () => {
-  if (!form.value.productionId || !form.value.recipeId) {
-    alert('请选择制作记录');
+  if (!form.value.productionId) {
+    alert('请选择关联制作记录');
     return;
   }
-  if (!form.value.actualBurnTime || !form.value.expectedBurnTime) {
-    alert('请填写燃烧时长');
+  if (!form.value.recipeId) {
+    alert('配方信息未找到，请重新选择制作记录');
+    return;
+  }
+  if (!form.value.actualBurnTime) {
+    alert('请填写实际燃烧时长');
+    return;
+  }
+  if (!form.value.expectedBurnTime) {
+    alert('预计燃烧时长未自动带出，请手动填写');
     return;
   }
   try {
     await feedbackApi.create(form.value);
-    showCreateModal.value = false;
-    form.value = defaultForm();
+    closeModal();
     await loadData();
   } catch (e) {
     alert('保存失败');
@@ -230,6 +267,10 @@ const formatDate = (iso: string) => {
 };
 
 onMounted(loadData);
+
+watch(selectedProductionId, () => {
+  onProductionChange();
+});
 </script>
 
 <style scoped>

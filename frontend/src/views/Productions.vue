@@ -2,7 +2,7 @@
   <div class="productions-page">
     <div class="page-header">
       <p class="page-desc">记录每一支蜡烛的制作过程，追踪工艺参数</p>
-      <button class="btn btn-primary" @click="showCreateModal = true">
+      <button class="btn btn-primary" @click="openModal">
         <span class="btn-icon">+</span> 新增制作记录
       </button>
     </div>
@@ -59,17 +59,17 @@
       </div>
     </div>
 
-    <div v-if="showCreateModal" class="modal-overlay" @click.self="showCreateModal = false">
+    <div v-if="showCreateModal" class="modal-overlay" @click.self="closeModal">
       <div class="modal">
         <div class="modal-header">
           <h3>新增制作记录</h3>
-          <button class="close-btn" @click="showCreateModal = false">×</button>
+          <button class="close-btn" @click="closeModal">×</button>
         </div>
         <div class="modal-body">
           <div class="form-grid">
             <div class="form-item full">
               <label>关联订单</label>
-              <select v-model="form.orderId" @change="onOrderChange">
+              <select v-model="selectedOrderId" @change="onOrderChange">
                 <option value="">请选择待制作订单</option>
                 <option v-for="o in pendingOrders" :key="o.id" :value="o.id">
                   {{ o.customerName }} - {{ o.recipeName }} (#{{ o.id.slice(0, 8) }})
@@ -118,7 +118,7 @@
           </div>
         </div>
         <div class="modal-footer">
-          <button class="btn btn-outline" @click="showCreateModal = false">取消</button>
+          <button class="btn btn-outline" @click="closeModal">取消</button>
           <button class="btn btn-primary" @click="submit">保存</button>
         </div>
       </div>
@@ -127,7 +127,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { productionApi, ProductionRecord, OilAmount } from '@/api/production';
 import { orderApi, Order } from '@/api/order';
 import { recipeApi, Recipe } from '@/api/recipe';
@@ -137,6 +137,7 @@ const pendingOrders = ref<Order[]>([]);
 const recipes = ref<Recipe[]>([]);
 const showCreateModal = ref(false);
 const selectedRecipe = ref<Recipe | null>(null);
+const selectedOrderId = ref('');
 
 const defaultForm = () => ({
   orderId: '',
@@ -151,15 +152,41 @@ const defaultForm = () => ({
 
 const form = ref(defaultForm());
 
+const openModal = () => {
+  selectedOrderId.value = '';
+  selectedRecipe.value = null;
+  form.value = defaultForm();
+  showCreateModal.value = true;
+};
+
+const closeModal = () => {
+  showCreateModal.value = false;
+  selectedOrderId.value = '';
+  selectedRecipe.value = null;
+  form.value = defaultForm();
+};
+
 const loadData = async () => {
   productions.value = await productionApi.findAll();
-  pendingOrders.value = (await orderApi.findAll()).filter((o) => o.status === 'pending' || o.status === 'producing');
+  pendingOrders.value = (await orderApi.findAll()).filter(
+    (o) => o.status === 'pending' || o.status === 'producing',
+  );
   recipes.value = await recipeApi.findAll();
 };
 
 const onOrderChange = () => {
-  const order = pendingOrders.value.find((o) => o.id === form.value.orderId);
+  if (!selectedOrderId.value) {
+    selectedRecipe.value = null;
+    form.value.orderId = '';
+    form.value.recipeId = '';
+    form.value.recipeName = '';
+    return;
+  }
+  const order = pendingOrders.value.find((o) => o.id === selectedOrderId.value);
   if (order) {
+    form.value.orderId = order.id;
+    form.value.recipeId = order.recipeId;
+    form.value.recipeName = order.recipeName;
     const recipe = recipes.value.find((r) => r.id === order.recipeId);
     if (recipe) {
       selectedRecipe.value = recipe;
@@ -169,6 +196,8 @@ const onOrderChange = () => {
         name: eo.name,
         amount: Math.round((eo.percentage / 100) * 30 * 10) / 10,
       }));
+    } else {
+      selectedRecipe.value = null;
     }
   }
 };
@@ -178,15 +207,20 @@ const addOil = () => {
 };
 
 const submit = async () => {
-  if (!form.value.orderId || !form.value.recipeId) {
-    alert('请选择订单');
+  if (!form.value.orderId) {
+    alert('请选择关联订单');
+    return;
+  }
+  if (!form.value.recipeId) {
+    alert('配方信息未找到，请重新选择订单');
     return;
   }
   try {
     await productionApi.create(form.value);
     showCreateModal.value = false;
-    form.value = defaultForm();
+    selectedOrderId.value = '';
     selectedRecipe.value = null;
+    form.value = defaultForm();
     await loadData();
   } catch (e) {
     alert('保存失败');
@@ -199,6 +233,10 @@ const formatDate = (iso: string) => {
 };
 
 onMounted(loadData);
+
+watch(selectedOrderId, () => {
+  onOrderChange();
+});
 </script>
 
 <style scoped>
